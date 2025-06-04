@@ -2,74 +2,146 @@ const Mentor = require('../models/mentorModel');
 const Mentee = require('../models/menteeModel');
 const Pairing = require('../models/pairingModel');
 
+
+function groupByField(pairs, mentorsList) {
+  const result = {};
+
+  for (const mentorName in pairs) {
+    const mentor = mentorsList.find(m => m.name === mentorName);
+    const stack = mentor?.stack || 'unknown';
+
+    if (!result[stack]) result[stack] = {};
+    result[stack][mentorName] = pairs[mentorName];
+  }
+
+  return result;
+}
+
+
 //This endpoint helps to pair according to stack
 exports.runPairing = async (req, res) => {
   try {
     const stack = req.query.stack;
 
-    // Let's load existing pairings
     const existingPairings = await Pairing.find(stack ? { stack } : {});
     const pairedMentees = new Set(existingPairings.map(p => p.menteeName));
 
     const mentorCountMap = {};
-    for (const pairing of existingPairings) {
-      mentorCountMap[pairing.mentorName] = (mentorCountMap[pairing.mentorName] || 0) + 1;
+    for (const p of existingPairings) {
+      mentorCountMap[p.mentorName] = (mentorCountMap[p.mentorName] || 0) + 1;
     }
 
-    // This part filers mentors who still have slots less than 2
-    const mentors = (stack ? await Mentor.find({ stack }) : await Mentor.find())
-      .filter(m => (mentorCountMap[m.name] || 0) < 2);
+    const mentors = (stack ? await Mentor.find({ stack }) : await Mentor.find());
+    const mentees = (stack ? await Mentee.find({ stack }) : await Mentee.find());
 
-    //This part filters mentees who are not yet paired
-    const mentees = (stack ? await Mentee.find({ stack }) : await Mentee.find())
-      .filter(m => !pairedMentees.has(m.name));
-
-    // We then build a map of available mentors by stack
-    const mentorMap = {};
-    for (const mentor of mentors) {
-      if (!mentorMap[mentor.stack]) mentorMap[mentor.stack] = [];
-      mentorMap[mentor.stack].push({
-        ...mentor._doc,
-        menteeCount: mentorCountMap[mentor.name] || 0
-      });
-    }
-
+    const unpairedMentees = mentees.filter(m => !pairedMentees.has(m.name));
     const newPairs = {};
     const unmatched = [];
 
-    for (const mentee of mentees) {
-      const candidates = mentorMap[mentee.stack] || [];
-      const mentor = candidates.find(m => m.menteeCount < 2);
+    const mentorMap = {};
+    for (const mentor of mentors) {
+      const currentCount = mentorCountMap[mentor.name] || 0;
+      if (!mentorMap[mentor.stack]) mentorMap[mentor.stack] = [];
 
-      if (mentor) {
-        mentor.menteeCount++;
-        newPairs[mentor.name] = newPairs[mentor.name] || [];
+      mentorMap[mentor.stack].push({
+        ...mentor._doc,
+        menteeCount: currentCount,
+        assigned: currentCount > 0 ? true : false
+      });
+
+      newPairs[mentor.name] = [];
+    }
+
+    const firstPassMentees = [...unpairedMentees];
+    const secondPassMentees = [];
+
+    // Here, we ensure all mentors get at least one mentee ===
+    for (const mentor of mentors) {
+      if ((mentorCountMap[mentor.name] || 0) >= 2) continue;
+
+      const matchIndex = firstPassMentees.findIndex(
+        m => m.stack === mentor.stack && !pairedMentees.has(m.name)
+      );
+
+      if (matchIndex !== -1) {
+        const mentee = firstPassMentees.splice(matchIndex, 1)[0];
+        mentorCountMap[mentor.name] = (mentorCountMap[mentor.name] || 0) + 1;
         newPairs[mentor.name].push(mentee.name);
 
-        await Pairing.create({
-          mentorName: mentor.name,
-          menteeName: mentee.name,
-          stack: mentee.stack
-        });
+        // await Pairing.create({
+        //   mentorName: mentor.name,
+        //   menteeName: mentee.name,
+        //   stack: mentee.stack
+        // });
+        await Pairing.findOneAndUpdate(
+          { mentorName: mentor.name, menteeName: mentee.name },
+          { $setOnInsert: { stack: mentee.stack } },
+          { upsert: true, new: true }
+        );
+
+        await Mentor.updateOne(
+          { name: mentor.name },
+          { $addToSet: { mentees: mentee.name } }
+        );
+        
+        
+
+        pairedMentees.add(mentee.name);
+      }
+    }
+
+    //Here, we assign remaining mentees to mentors with < 2
+    secondPassMentees.push(...firstPassMentees);
+
+    for (const mentee of secondPassMentees) {
+      const mentorsInField = mentorMap[mentee.stack] || [];
+
+      const mentor = mentorsInField.find(m => mentorCountMap[m.name] < 2);
+
+      if (mentor) {
+        mentorCountMap[mentor.name]++;
+        newPairs[mentor.name].push(mentee.name);
+
+        // await Pairing.create({
+        //   mentorName: mentor.name,
+        //   menteeName: mentee.name,
+        //   stack: mentee.stack
+        // });
+
+        await Pairing.findOneAndUpdate(
+          { mentorName: mentor.name, menteeName: mentee.name },
+          { $setOnInsert: { stack: mentee.stack } },
+          { upsert: true, new: true }
+        );
+
+        await Mentor.updateOne(
+          { name: mentor.name },
+          { $addToSet: { mentees: mentee.name } }
+        );
+        
+        
+
+        pairedMentees.add(mentee.name);
       } else {
         unmatched.push(mentee.name);
       }
     }
 
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
       message: unmatched.length > 0
-        ? `Pairing done for ${stack || 'all stacks'} with unmatched mentees`
-        : `Pairing completed for ${stack || 'all stacks'}`,
-      data: {
-        newPairs,
-        unmatched
-      }
+        ? `Pairing done for ${stack || 'all fields'} with unmatched mentees`
+        : `Fair pairing completed for ${stack || 'all fields'}`,
+        data: {
+          groupedPairs: groupByField(newPairs, mentors),
+          unmatched
+        }
+        
     });
 
   } catch (err) {
     console.error("Pairing Error:", err);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Pairing failed",
       error: err.message
@@ -79,20 +151,58 @@ exports.runPairing = async (req, res) => {
 
 
 
+
+
+
+
 //With this endpoint, we are gonna be able to fetch according to stack, or just fetch all pairings
+
 exports.getPairings = async (req, res) => {
   try {
     const stack = req.query.stack;
-
     const query = stack ? { stack } : {};
+
     const pairings = await Pairing.find(query);
+
+    if (!pairings.length) {
+      return res.status(200).json({
+        success: true,
+        message: `No pairings${stack ? ' for ' + stack : ''} found`,
+        data: []
+      });
+    }
+
+    // Group pairings by mentorName
+    const grouped = {};
+    for (const p of pairings) {
+      if (!grouped[p.mentorName]) {
+        grouped[p.mentorName] = {
+          mentor: p.mentorName,
+          stack: p.stack,
+          mentees: []
+        };
+      }
+      grouped[p.mentorName].mentees.push(p.menteeName);
+    }
+
+    // Fetch mentor emails
+    const mentorNames = Object.keys(grouped);
+    const mentors = await Mentor.find({ name: { $in: mentorNames } });
+
+    // Add email to each mentor group
+    for (const mentor of mentors) {
+      if (grouped[mentor.name]) {
+        grouped[mentor.name].email = mentor.email;
+      }
+    }
+
+    // Convert to array
+    const groupedArray = Object.values(grouped);
 
     return res.status(200).json({
       success: true,
-      message: pairings.length
-        ? `Pairings${stack ? ' for ' + stack : ''} retrieved successfully`
-        : `No pairings${stack ? ' for ' + stack : ''} found`,
-      data: pairings
+      message: `Pairings${stack ? ' for ' + stack : ''} retrieved successfully`,
+      data: groupedArray
     });
 
   } catch (err) {
@@ -106,8 +216,8 @@ exports.getPairings = async (req, res) => {
 };
 
 
-//ignore the below. The above works better in real world lol
 
+//ignore the below. The above works better in real world lol
 
 exports.runPairings = async (req, res) => {
   try {
