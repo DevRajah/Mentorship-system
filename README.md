@@ -2,6 +2,10 @@
 
 A backend platform designed to automate mentor–mentee pairing for educational programs.
 
+## Impact
+
+This system replaced a manual mentor assignment process previously conducted using paper and pen, improving efficiency and fairness in mentee distribution.
+
 ## Key Features
 - Automated mentor–mentee pairing
 - Stack-based matching (Frontend, Backend, Design)
