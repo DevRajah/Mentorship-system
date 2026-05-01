@@ -32,7 +32,7 @@ exports.createMentor = async (req, res) => {
     }
 
     // Case: Single mentee object
-    const { name, stack } = data;
+    const { name, phoneNumber, stack } = data;
 
     if (!name || !stack) {
       return res.status(400).json({
@@ -41,7 +41,7 @@ exports.createMentor = async (req, res) => {
       });
     }
 
-    const mentee = await Mentor.create({ name, stack });
+    const mentee = await Mentor.create({ name,phoneNumber, stack });
 
     return res.status(201).json({
       success: true,

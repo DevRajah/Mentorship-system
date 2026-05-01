@@ -71,7 +71,7 @@ exports.runPairing = async (req, res) => {
       message: `Paired ${randomMentor.name} with ${mentee.name}`,
       data: {
         mentor: randomMentor.name,
-        email: randomMentor.email,
+        phone: randomMentor.phoneNumber,
         stack,
         mentee: mentee.name,
       }
@@ -144,14 +144,14 @@ exports.getPairings = async (req, res) => {
       grouped[p.mentorName].mentees.push(p.menteeName);
     }
 
-    // Fetch mentor emails
+    // Fetch mentor phone numbers
     const mentorNames = Object.keys(grouped);
     const mentors = await Mentor.find({ name: { $in: mentorNames } });
 
-    // Add email and menteeCount to each mentor group
+    // Add phone and menteeCount to each mentor group
     for (const mentor of mentors) {
       if (grouped[mentor.name]) {
-        grouped[mentor.name].email = mentor.email;
+        grouped[mentor.name].phone = mentor.phoneNumber;
         grouped[mentor.name].menteeCount = grouped[mentor.name].mentees.length;
       }
     }
@@ -208,10 +208,10 @@ exports.getPairings = async (req, res) => {
 //     const mentorNames = Object.keys(grouped);
 //     const mentors = await Mentor.find({ name: { $in: mentorNames } });
 
-//     // Add email to each mentor group
+//     // Add phone to each mentor group
 //     for (const mentor of mentors) {
 //       if (grouped[mentor.name]) {
-//         grouped[mentor.name].email = mentor.email;
+//         grouped[mentor.name].phone = mentor.phone;
 //       }
 //     }
 
