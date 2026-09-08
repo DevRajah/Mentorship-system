@@ -43,7 +43,7 @@ exports.createMentee = async (req, res) => {
       });
     }
 
-    const mentee = await Mentee.create({ name, stack });
+    const mentee = await Mentee.create({ name,stack });
 
     return res.status(201).json({
       success: true,
@@ -62,7 +62,7 @@ exports.createMentee = async (req, res) => {
 };
 
 
-exports.getMentees = async (req, res) => {
+exports.getMentees = async (req, res) => { 
   try {
     const mentees = await Mentee.find();
 
