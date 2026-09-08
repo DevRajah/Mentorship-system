@@ -34,7 +34,7 @@ exports.createMentee = async (req, res) => {
     }
 
     // Case: Single mentee object
-    const { name, stack } = data;
+    const { name,email, stack } = data;
 
     if (!name || !stack) {
       return res.status(400).json({
